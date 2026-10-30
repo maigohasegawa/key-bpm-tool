@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>キー/BPM 照合ツール</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  /* layout: 上部バー → 入力カード → 結果（タブ: マッシュアップ候補 / 基準曲と比較） */
+  --bg: #f3f4f1;
+  --surface: #ffffff;
+  --ink: #1d2124;
+  --muted: #6a7178;
+  --line: #dfe2dd;
+  --accent: #3446d6;
+  --accent-soft: #e6e9fb;
+  --good: #1f8a4c;  --good-bg: #e2f3e8;
+  --warn: #a8670a;  --warn-bg: #fbf0dc;
+  --far: #b23a3a;   --far-bg: #f8e4e2;
+  --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15181b; --surface: #1d2125; --ink: #e7e9e6; --muted: #959ca3; --line: #2f343a;
+    --accent: #8d9bff; --accent-soft: #262c52;
+    --good: #5cc98a; --good-bg: #183324; --warn: #e3a94b; --warn-bg: #3a2c14; --far: #ee8a84; --far-bg: #3c1f1e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15181b; --surface: #1d2125; --ink: #e7e9e6; --muted: #959ca3; --line: #2f343a;
+  --accent: #8d9bff; --accent-soft: #262c52;
+  --good: #5cc98a; --good-bg: #183324; --warn: #e3a94b; --warn-bg: #3a2c14; --far: #ee8a84; --far-bg: #3c1f1e;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.55 var(--font-body); }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+[hidden] { display: none !important; }
+
+/* top bar */
+.bar { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.bar-in { max-width: 1280px; margin: 0 auto; padding: 10px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.brand { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.brand-mark { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); display: grid; place-items: center; color: #fff; font: 500 11px var(--font-num); }
+.bar .spacer { flex: 1; }
+
+.wrap { max-width: 1280px; margin: 0 auto; padding: 20px 20px 60px; display: grid; gap: 18px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+h1 { font-size: 19px; margin: 0; text-wrap: balance; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+.sub { color: var(--muted); font-size: 12.5px; }
+
+/* controls */
+input[type="search"], input[type="number"], input[type="text"], input[type="password"], select, textarea {
+  font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px;
+}
+textarea { width: 100%; resize: vertical; min-height: 64px; font-family: var(--font-num); font-size: 13px; }
+input[type="number"] { width: 70px; }
+button {
+  font: inherit; font-size: 13px; cursor: pointer; border-radius: 6px; padding: 6px 12px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 500; }
+button.primary:hover:not(:disabled) { filter: brightness(1.08); color: #fff; }
+button.link { border: 0; background: none; color: var(--accent); padding: 0; text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.row label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+
+/* input card */
+.input-card { display: grid; gap: 10px; }
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 4px; }
+.step { border: 1px dashed var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13px; color: var(--muted); }
+.step b { color: var(--ink); display: block; font-size: 13px; }
+.progress { display: grid; gap: 6px; }
+.pbar { height: 6px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.pbar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.pbar.indet i { width: 30%; animation: slide 1.2s infinite ease-in-out; }
+@keyframes slide { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+.log { font-size: 12.5px; color: var(--muted); display: grid; gap: 2px; }
+.notice { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; background: var(--warn-bg); color: var(--ink); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.notice span { color: var(--muted); flex: 1 1 320px; }
+.err { background: var(--far-bg); color: var(--far); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+
+/* tabs */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 14px; font-weight: 500; color: var(--muted); }
+.tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tab .count { font: 500 11px var(--font-num); background: var(--warn-bg); color: var(--warn); border-radius: 99px; padding: 1px 7px; margin-left: 6px; }
+
+/* stats */
+.top { display: grid; grid-template-columns: minmax(280px, 1.4fr) repeat(4, minmax(120px, 1fr)); gap: 12px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.ref { border-left: 4px solid var(--accent); }
+.label { font-size: 11.5px; color: var(--muted); letter-spacing: .04em; }
+.ref .t { font-size: 17px; font-weight: 700; margin: 2px 0 0; overflow-wrap: anywhere; }
+.ref .a { color: var(--muted); font-size: 13px; }
+.ref .facts { display: flex; gap: 18px; margin-top: 10px; flex-wrap: wrap; }
+.ref .facts b { display: block; font-size: 20px; font-family: var(--font-num); font-weight: 500; }
+.stat b { display: block; font: 500 26px/1.2 var(--font-num); margin-top: 4px; }
+.stat small { color: var(--muted); font-size: 12px; }
+.stat.alert { border-top: 3px solid var(--warn); }
+
+/* tables */
+.tablebox { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; }
+#refTable { min-width: 1400px; }
+#pairTable { min-width: 980px; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+th { font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; background: var(--surface); }
+th[data-sort] { cursor: pointer; user-select: none; }
+th[data-sort]:hover { color: var(--accent); }
+th .arrow { font-size: 10px; margin-left: 3px; }
+th.r, td.r { text-align: right; }
+tr:last-child td { border-bottom: 0; }
+tr.is-ref td { background: var(--accent-soft); }
+td.song { min-width: 200px; }
+.song b { font-weight: 500; display: block; overflow-wrap: anywhere; }
+.song span { color: var(--muted); font-size: 12px; }
+.song .vals { font: 12px var(--font-num); color: var(--ink); margin-top: 2px; display: block; }
+.song a { color: inherit; text-decoration: none; }
+.song a:hover b { color: var(--accent); text-decoration: underline; }
+td input.bpm { width: 78px; text-align: right; font-family: var(--font-num); padding: 3px 6px; }
+td select.key { padding: 3px 4px; font-size: 13px; }
+.edited { border-color: var(--warn) !important; }
+.chip { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 12px; white-space: nowrap; }
+.chip.good { background: var(--good-bg); color: var(--good); }
+.chip.warn { background: var(--warn-bg); color: var(--warn); }
+.chip.far  { background: var(--far-bg);  color: var(--far); }
+.chip.none { color: var(--muted); border: 1px dashed var(--line); }
+.chip.manual { background: var(--accent-soft); color: var(--accent); }
+.tag { font-size: 11px; color: var(--muted); margin-left: 4px; }
+.zero { color: var(--good); font-weight: 500; }
+.badge-ref { font-size: 11px; color: var(--accent); font-weight: 700; }
+.srcs, .reasons, .stack { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.src { font: 12px/1.3 var(--font-num); padding: 2px 7px; border-radius: 5px; border: 1px solid var(--line); background: transparent; color: var(--ink); white-space: nowrap; text-align: left; }
+.src .n { color: var(--muted); font-family: var(--font-body); font-size: 11px; margin-right: 5px; }
+.src.on { border-color: var(--accent); background: var(--accent-soft); }
+.src.empty { color: var(--muted); border-style: dashed; cursor: default; }
+.src.empty:hover { color: var(--muted); border-color: var(--line); }
+.small { font-size: 12px; color: var(--muted); }
+.score { display: flex; align-items: center; gap: 8px; }
+.score i { display: block; width: 46px; height: 5px; border-radius: 99px; background: var(--line); overflow: hidden; }
+.score i b { display: block; height: 100%; background: var(--good); }
+.pair-arrow { color: var(--muted); font-size: 12px; }
+
+details.help { font-size: 13px; color: var(--muted); }
+details.help summary { cursor: pointer; color: var(--ink); }
+details.help ul { margin: 8px 0 0; padding-left: 20px; max-width: 78ch; }
+
+dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; background: var(--surface); color: var(--ink); width: min(520px, calc(100% - 32px)); }
+dialog::backdrop { background: rgba(0,0,0,.35); }
+.dlg { padding: 18px 20px; display: grid; gap: 14px; }
+.field { display: grid; gap: 4px; }
+.field label { font-weight: 500; font-size: 13px; display: flex; gap: 8px; align-items: center; }
+.field input { width: 100%; font-family: var(--font-num); }
+.field p { margin: 0; font-size: 12px; color: var(--muted); }
+.field a { color: var(--accent); }
+.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.foot { max-width: 1280px; margin: 0 auto; padding: 0 20px 28px; font-size: 12px; color: var(--muted); }
+.foot a { color: var(--muted); }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 10; }
+.toast.show { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .toast, .pbar i { transition: none; } .pbar.indet i { animation: none; width: 100%; opacity: .5; } }
+@media (max-width: 980px) { .top { grid-template-columns: 1fr 1fr; } .ref { grid-column: 1 / -1; } .steps { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="bar-in">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">♯</span>キー/BPM 照合ツール</div>
+    <span class="spacer"></span>
+    <label for="history" class="small">解析履歴
+      <select id="history"><option value="">履歴はまだありません</option></select>
+    </label>
+    <button type="button" id="openSettings">設定</button>
+    <button type="button" id="quit">終了</button>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card input-card" aria-label="プレイリストの読み込み">
+    <label for="input"><h2 style="margin:0">Spotify のプレイリストURLを貼り付け</h2></label>
+    <textarea id="input" rows="2" placeholder="https://open.spotify.com/playlist/…（曲のリンクやアルバムURLも貼り付けられます。複数行OK）"></textarea>
+    <div class="row">
+      <button type="button" class="primary" id="analyze">解析する</button>
+      <label for="refresh"><input type="checkbox" id="refresh"> 保存済みの結果を使わずに取り直す</label>
+      <span class="small" id="srcNote"></span>
+    </div>
+    <div class="notice" id="keyNotice" hidden>
+      <b>GetSongBPM の APIキーを設定してください</b>
+      <span>BPM の取得は GetSongBPM が標準です。キーが未設定のあいだは ReccoBeats の値だけで解析します。</span>
+      <button type="button" class="primary" id="keyNoticeBtn">APIキーを設定</button>
+    </div>
+    <div class="progress" id="progress" hidden>
+      <div class="pbar" id="pbar"><i></i></div>
+      <div class="small" id="stage"></div>
+    </div>
+    <div class="log" id="log"></div>
+    <div class="err" id="error" hidden></div>
+    <div class="steps" id="steps">
+      <div class="step"><b>1. URLを貼って「解析する」</b>Spotify でプレイリストの「共有 → リンクをコピー」で取れるURLです。</div>
+      <div class="step"><b>2. マッシュアップ候補を見る</b>BPM とキーが近い組み合わせが、相性の良い順に並びます。</div>
+      <div class="step"><b>3. 「要確認」を購入前にチェック</b>データベースどうしで値がずれている曲に印が付きます。 <button type="button" class="link" id="demo">サンプルで試す</button></div>
+    </div>
+  </section>
+
+  <section id="result" hidden>
+    <div style="display:grid; gap:14px">
+      <header>
+        <h1 id="resTitle"></h1>
+        <div class="sub" id="resMeta"></div>
+      </header>
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab" role="tab" id="tabPairs" aria-selected="true" aria-controls="panelPairs">マッシュアップ候補</button>
+        <button type="button" class="tab" role="tab" id="tabRef" aria-selected="false" aria-controls="panelRef">基準曲と比較<span class="count" id="checkCount" hidden></span></button>
+      </div>
+
+      <!-- マッシュアップ候補 -->
+      <div id="panelPairs" role="tabpanel" aria-labelledby="tabPairs" style="display:grid; gap:14px">
+        <div class="row">
+          <label for="pFocus">曲で絞る
+            <select id="pFocus"><option value="">すべての組み合わせ</option></select>
+          </label>
+          <label for="pTol">BPM差 ±<input id="pTol" type="number" min="0" max="50" step="0.5" value="8">%</label>
+          <label for="pShift">移調は最大
+            <select id="pShift"><option value="0">しない</option><option value="1">±1半音</option><option value="2" selected>±2半音</option><option value="3">±3半音</option><option value="4">±4半音</option></select>
+          </label>
+          <label for="pHd"><input id="pHd" type="checkbox" checked> ハーフ/ダブルタイムも候補に</label>
+          <label for="pVerified"><input id="pVerified" type="checkbox"> 照合で一致した曲だけ</label>
+          <label for="pSort">並び順
+            <select id="pSort"><option value="score">おすすめ順</option><option value="bpm">BPMが近い順</option><option value="key">移調が少ない順</option></select>
+          </label>
+        </div>
+        <div class="small" id="pSummary"></div>
+        <div class="tablebox">
+          <table id="pairTable">
+            <thead><tr>
+              <th class="r">#</th><th>曲 A</th><th></th><th>曲 B</th><th>テンポ</th><th>キー</th><th>照合</th><th>相性</th><th></th>
+            </tr></thead>
+            <tbody id="pairBody"></tbody>
+          </table>
+        </div>
+        <details class="help">
+          <summary>マッシュアップ候補の見かた</summary>
+          <ul>
+            <li><b>テンポ</b>：曲Bを曲Aのテンポに合わせるときの伸縮率。「×2」「÷2」は倍・半分のテンポとして合わせる組み合わせです。</li>
+            <li><b>キー</b>：「移調不要」は同じキー・平行調・Camelotで隣のキーなど、そのまま重ねやすい組み合わせ。「Bを+2」は曲Bを2半音上げると同じキーになるという意味です。</li>
+            <li><b>照合</b>：どちらかの曲で、データベースどうしの値がずれていると「要確認」になります。購入前に「基準曲と比較」タブで値を確かめてください。</li>
+            <li><b>相性</b>：テンポの伸縮率と移調量が小さいほど高くなります。</li>
+          </ul>
+        </details>
+      </div>
+
+      <!-- 基準曲と比較 -->
+      <div id="panelRef" role="tabpanel" aria-labelledby="tabRef" hidden style="display:grid; gap:14px">
+        <section class="top" aria-label="基準曲と集計">
+          <div class="panel ref" id="refPanel"></div>
+          <div class="panel stat"><div class="label">BPMが近い</div><b id="sBpm" class="num">–</b><small id="sBpmNote"></small></div>
+          <div class="panel stat"><div class="label">キーの相性が良い</div><b id="sKey" class="num">–</b><small>同じ・平行調・Camelot隣接</small></div>
+          <div class="panel stat"><div class="label">どちらも近い</div><b id="sBoth" class="num">–</b><small>マッシュアップ候補</small></div>
+          <div class="panel stat alert"><div class="label">要確認</div><b id="sCheck" class="num">–</b><small id="sCheckNote">データベース間でずれ</small></div>
+        </section>
+        <div class="row">
+          <label for="q">検索 <input id="q" type="search" placeholder="曲名・アーティスト"></label>
+          <label for="tol">BPM許容差 ±<input id="tol" type="number" min="0" max="50" step="0.5" value="6">%</label>
+          <label for="hd"><input id="hd" type="checkbox" checked> ハーフ/ダブルタイムも考慮</label>
+          <label for="show">表示
+            <select id="show">
+              <option value="all">すべて</option>
+              <option value="bpm">BPMが近い曲</option>
+              <option value="key">キーの相性が良い曲</option>
+              <option value="both">どちらも近い曲</option>
+              <option value="check">要確認の曲</option>
+            </select>
+          </label>
+          <span class="spacer" style="flex:1"></span>
+          <button id="resetEdits" type="button">手入力をリセット</button>
+          <button id="csv" type="button">CSVで保存</button>
+        </div>
+        <div class="tablebox">
+          <table id="refTable">
+            <thead>
+              <tr>
+                <th data-sort="idx" class="r">#</th>
+                <th data-sort="title">曲</th>
+                <th data-sort="bpm" class="r">BPM</th>
+                <th data-sort="keyIdx">キー</th>
+                <th data-sort="checkRank" title="複数のデータベースの値が一致しているか">照合</th>
+                <th title="各データベースの値。クリックするとその値を採用します">データベースの値</th>
+                <th data-sort="camelotSort">Camelot</th>
+                <th data-sort="bpmDiffAbs" class="r">BPM差</th>
+                <th data-sort="bpmPctAbs" class="r">BPM差 %</th>
+                <th data-sort="keyShiftAbs" class="r" title="この曲を基準曲のキーに合わせるのに必要な移調量（半音）">キー差（半音）</th>
+                <th data-sort="compatRank">キーの相性</th>
+                <th data-sort="afterAbs" class="r" title="キーロックなしでテンポを基準曲に合わせたとき、残るキー差（半音）">テンポ合わせ後のキー差</th>
+                <th>基準</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <details class="help">
+          <summary>各列の見かた</summary>
+          <ul>
+            <li><b>照合</b>：複数のデータベースの値を比べた結果です。BPMの倍/半分のずれと、平行調（例：Aマイナー⇔Cメジャー）の取り違えはよくあるので個別に表示します。</li>
+            <li><b>データベースの値</b>：RB＝ReccoBeats、GS＝GetSongBPM、SS＝SoundStat。値をクリックするとその値を採用します。初期値は GetSongBPM の値です。GetSongBPM に見つからない曲は ReccoBeats の値を使います。3つのデータベースを使っている場合は、2つ以上で一致した値を優先します。</li>
+            <li><b>キー差（半音）</b>：この曲を何半音動かせば基準曲と同じキーになるか。長調と短調が違う場合は平行調として比べます。</li>
+            <li><b>キーの相性</b>：Camelotホイール上の距離。同じ番号（同じキー・平行調）と ±1 は自然につながりやすく、±2 は工夫が必要です。</li>
+            <li><b>テンポ合わせ後のキー差</b>：キーロックなしで再生速度を変えると音程も動くため、その分を差し引いた残りのキー差です。</li>
+            <li>BPMやキーは表の中で直接書き換えられます（このパソコンのブラウザに保存されます）。</li>
+          </ul>
+        </details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  BPM・キーのデータ提供：<a href="https://getsongbpm.com" target="_blank" rel="noopener">GetSongBPM.com</a> ・
+  <a href="https://reccobeats.com" target="_blank" rel="noopener">ReccoBeats</a> ・
+  <a href="https://github.com/maigohasegawa/key-bpm-tool" target="_blank" rel="noopener">このツールについて</a>
+</footer>
+
+<dialog id="settings" aria-labelledby="settingsTitle">
+  <form class="dlg" id="settingsForm" method="dialog">
+    <h2 id="settingsTitle" style="margin:0">照合に使うデータベース</h2>
+    <p class="small" style="margin:0">BPM・キーは GetSongBPM の値を標準で使い、見つからない曲は ReccoBeats（設定不要）で補います。</p>
+    <div class="field">
+      <label for="gsKey">GetSongBPM の APIキー（標準） <span class="chip good" id="gsSet" hidden>設定済み</span></label>
+      <input id="gsKey" type="password" autocomplete="off" placeholder="未設定（空のまま保存すると変更しません）">
+      <p>無料。<a href="https://getsongbpm.com/api" target="_blank" rel="noopener">getsongbpm.com/api</a> で取得できます。利用条件として、自分のサイト等に GetSongBPM.com へのリンクを置く必要があります。</p>
+    </div>
+    <div class="field">
+      <label for="ssKey">SoundStat の APIキー <span class="chip good" id="ssSet" hidden>設定済み</span></label>
+      <input id="ssKey" type="password" autocomplete="off" placeholder="未設定（任意）">
+      <p>任意。<a href="https://soundstat.info" target="_blank" rel="noopener">soundstat.info</a> でキーを取得した場合のみ。</p>
+    </div>
+    <label for="showKeys" class="small" style="display:flex; gap:6px; align-items:center"><input type="checkbox" id="showKeys"> キーを表示する</label>
+    <div class="dlg-actions">
+      <button type="button" id="clearKeys">キーを削除</button>
+      <span style="flex:1"></span>
+      <button type="button" id="cancelSettings">キャンセル</button>
+      <button type="button" class="primary" id="saveSettings">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const NOTES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const NOTES_FLAT = ["C","D♭","D","E♭","E","F","G♭","G","A♭","A","B♭","B"];
+const SRC_LABEL = { recco: ["RB", "ReccoBeats"], gsbpm: ["GS", "GetSongBPM"], soundstat: ["SS", "SoundStat"] };
+const STORE_KEY = "kbc-edits-v2";
+// 優先順: GetSongBPM を標準にし、見つからない曲は ReccoBeats → SoundStat の値を使う
+const PRIORITY = ["gsbpm", "recco", "soundstat"];
+const mod = (n, m) => ((n % m) + m) % m;
+const signed = d => { d = mod(d, 12); return d > 6 ? d - 12 : d; };
+
+let edits = {};
+try { edits = JSON.parse(localStorage.getItem(STORE_KEY) || "{}") || {}; } catch (e) { edits = {}; }
+function saveEdits() { try { localStorage.setItem(STORE_KEY, JSON.stringify(edits)); } catch (e) {} }
+
+let DATA = null, base = [], SOURCES = ["recco"], refId = null, sortKey = "idx", sortDir = 1;
+
+// ------------------------------------------------------------ music helpers
+function useFlat(k, m) { return (m === 1 && [1,3,5,8,10].includes(k)) || (m === 0 && [3,5,10].includes(k)); }
+function keyName(k, m) { return k == null || m == null ? "" : (useFlat(k, m) ? NOTES_FLAT[k] : NOTES[k]) + (m === 1 ? " メジャー" : " マイナー"); }
+function keyShort(k, m) { return k == null ? "–" : (useFlat(k, m) ? NOTES_FLAT[k] : NOTES[k]) + (m === 0 ? "m" : ""); }
+function camelot(k, m) {
+  if (k == null || m == null) return null;
+  const majorTonic = m === 1 ? k : mod(k + 3, 12);
+  const n = mod(majorTonic * 7 + 7, 12) + 1;
+  return { n, l: m === 1 ? "B" : "A", s: n + (m === 1 ? "B" : "A") };
+}
+function camDist(a, b) { return Math.min(mod(a.n - b.n, 12), mod(b.n - a.n, 12)); }
+function compatOf(cam, refCam) {
+  const dist = camDist(cam, refCam);
+  if (dist === 0 && cam.l === refCam.l) return { t: "同じキー", c: "good", rank: 0 };
+  if (dist === 0) return { t: "平行調", c: "good", rank: 1 };
+  if (dist === 1 && cam.l === refCam.l) return { t: "隣接 ±1", c: "good", rank: 2 };
+  if (dist === 1) return { t: "斜め隣", c: "warn", rank: 3 };
+  if (dist === 2) return { t: "±2", c: "warn", rank: 4 };
+  return { t: "離れている (" + dist + ")", c: "far", rank: 4 + dist };
+}
+// v を ref のキーに合わせる移調量（長短が違えば平行調どうしで比較）
+function keyShiftTo(v, ref) {
+  const same = v.mode === ref.mode;
+  const tonic = x => same ? x.key : (x.mode === 1 ? x.key : mod(x.key + 3, 12));
+  return signed(tonic(ref) - tonic(v));
+}
+function fmtSigned(v, digits) {
+  if (v == null || isNaN(v)) return "–";
+  const s = v.toFixed(digits);
+  if (Number(s) === 0) return (0).toFixed(digits);
+  return (v > 0 ? "+" : "−") + Math.abs(v).toFixed(digits);
+}
+function fmtBpm(b) { return b ? Number(b).toFixed(b % 1 ? 1 : 0) : "–"; }
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+
+// ------------------------------------------------------------ cross-check
+function hasVal(v) { return v && !v.pending && (v.bpm || v.key != null); }
+function bpmRel(a, b) {
+  const r = a / b;
+  if (Math.abs(r - 1) <= 0.03) return "same";
+  if (Math.abs(r - 2) <= 0.06 || Math.abs(r - 0.5) <= 0.015) return "double";
+  if (Math.abs(r - 1.5) <= 0.045 || Math.abs(r - 2/3) <= 0.02) return "triplet";
+  return "diff";
+}
+function keyRel(a, b) {
+  if (a.mode == null || b.mode == null) return a.key === b.key ? "same" : "diff";
+  if (a.key === b.key && a.mode === b.mode) return "same";
+  const ca = camelot(a.key, a.mode), cb = camelot(b.key, b.mode);
+  if (ca.n === cb.n) return "relative";
+  if (a.key === b.key) return "parallel";
+  if (camDist(ca, cb) === 1 && ca.l === cb.l) return "near";
+  return "diff";
+}
+const REL_TEXT = {
+  bpm: { double: ["BPMが倍/半分", "warn"], triplet: ["BPMが3:2", "warn"], diff: ["BPM不一致", "far"] },
+  key: { relative: ["平行調のずれ", "warn"], parallel: ["同主調のずれ", "warn"], near: ["キーが隣接（±1）", "warn"], diff: ["キー不一致", "far"] }
+};
+const REL_ORDER = { same: 0, near: 1, relative: 1, parallel: 1, double: 1, triplet: 1, diff: 2 };
+function pickBy(list, rel) {
+  // list は優先順（GetSongBPM が先頭）。他の2つ以上が一致して先頭だけ外れている場合のみ多数派を採用
+  let best = null, bestScore = -1;
+  list.forEach(c => {
+    const score = list.filter(o => o !== c && rel(o, c) === "same").length;
+    if (score > bestScore) { best = c; bestScore = score; }
+  });
+  if (!list.length) return null;
+  const firstScore = list.filter(o => o !== list[0] && rel(o, list[0]) === "same").length;
+  return bestScore >= 2 && firstScore < bestScore ? best : list[0];
+}
+function prepare(r) {
+  const avail = SOURCES.map(s => ({ s, v: (r.src || {})[s] })).filter(o => hasVal(o.v));
+  const pb = pickBy(avail.filter(o => o.v.bpm), (a, b) => bpmRel(a.v.bpm, b.v.bpm));
+  const pk = pickBy(avail.filter(o => o.v.key != null), (a, b) => keyRel(a.v, b.v));
+  r.bpm = pb ? pb.v.bpm : null; r.key = pk ? pk.v.key : null; r.mode = pk ? pk.v.mode : null;
+  const reasons = [];
+  if (avail.length === 0) { r.check = { t: "データなし", c: "none", rank: 5, reasons }; return; }
+  if (avail.length === 1) { r.check = { t: "1件のみ", c: "single", rank: 4, reasons, only: avail[0].s }; return; }
+  let wb = "same", wk = "same";
+  for (let i = 0; i < avail.length; i++) for (let j = i + 1; j < avail.length; j++) {
+    const a = avail[i].v, b = avail[j].v;
+    if (a.bpm && b.bpm) { const x = bpmRel(a.bpm, b.bpm); if (REL_ORDER[x] > REL_ORDER[wb]) wb = x; }
+    if (a.key != null && b.key != null) { const x = keyRel(a, b); if (REL_ORDER[x] > REL_ORDER[wk]) wk = x; }
+  }
+  if (wb !== "same") reasons.push(REL_TEXT.bpm[wb]);
+  if (wk !== "same") reasons.push(REL_TEXT.key[wk]);
+  const far = reasons.some(x => x[1] === "far");
+  r.check = reasons.length ? { t: "", c: far ? "far" : "warn", rank: far ? 0 : 1, reasons } : { t: "一致", c: "good", rank: 3, reasons };
+}
+function eff(r) {
+  const e = edits[r.id] || {};
+  return { bpm: e.bpm !== undefined ? e.bpm : r.bpm, key: e.key !== undefined ? e.key : r.key,
+           mode: e.mode !== undefined ? e.mode : r.mode, edited: !!edits[r.id] };
+}
+function needsCheck(r) { return !edits[r.id] && (r.check.c === "warn" || r.check.c === "far"); }
+function checkChip(r) {
+  const ck = r.check;
+  if (edits[r.id]) return `<span class="chip manual">手動で決定</span>`;
+  if (ck.c === "good") return `<span class="chip good">一致</span>`;
+  if (ck.c === "none") return `<span class="chip none">データなし</span>`;
+  if (ck.c === "single") return `<span class="chip none" title="照合できるデータが1つだけです">${SRC_LABEL[ck.only][1]}のみ</span>`;
+  return `<div class="reasons">${ck.reasons.map(x => `<span class="chip ${x[1]}">${x[0]}</span>`).join("")}</div>`;
+}
+function songCell(r, extra) {
+  const demo = r.id.startsWith("demo");
+  const inner = `<b>${esc(r.title || "（曲名不明）")}</b><span>${esc(r.artist || "")}</span>${extra || ""}`;
+  return demo ? inner : `<a href="https://open.spotify.com/track/${r.id}" target="_blank" rel="noopener">${inner}</a>`;
+}
+
+// ------------------------------------------------------------ data load
+function setData(d) {
+  DATA = d; base = d.rows || []; SOURCES = PRIORITY.filter(s => (d.sources || ["recco"]).includes(s));
+  base.forEach(prepare);
+  if (!refId || !base.find(r => r.id === refId)) refId = base[0] && base[0].id;
+  $("result").hidden = false;
+  $("steps").hidden = true;
+  $("resTitle").textContent = d.title || "解析結果";
+  const missing = base.filter(r => r.bpm == null).length;
+  $("resMeta").textContent = `${base.length} 曲 ・ ${d.generated || ""} ・ 取得元: ${SOURCES.map((s, i) => SRC_LABEL[s][1] + (i === 0 && s === "gsbpm" ? "（標準）" : "")).join(" / ")}` +
+    (missing ? ` ・ データなし ${missing} 曲` : "") + (d.demo ? " ・ サンプルデータです" : "");
+  const sel = $("pFocus"), cur = sel.value;
+  sel.innerHTML = `<option value="">すべての組み合わせ</option>` +
+    base.filter(r => r.bpm || r.key != null).map(r => `<option value="${r.id}">${esc((r.title || r.id) + (r.artist ? " / " + r.artist : ""))}</option>`).join("");
+  if (base.find(r => r.id === cur)) sel.value = cur;
+  renderAll();
+}
+function renderAll() { renderPairs(); renderRef(); }
+
+// ------------------------------------------------------------ mashup pairs
+function computePair(ra, rb, opt) {
+  const a = eff(ra), b = eff(rb);
+  if (!a.bpm || !b.bpm || a.key == null || b.key == null || a.mode == null || b.mode == null) return null;
+  let best = { val: b.bpm, tag: "" };
+  if (opt.hd) for (const [val, tag] of [[b.bpm * 2, "×2"], [b.bpm / 2, "÷2"]])
+    if (Math.abs(val - a.bpm) < Math.abs(best.val - a.bpm)) best = { val, tag };
+  const pct = (best.val - a.bpm) / a.bpm * 100;
+  if (Math.abs(pct) > opt.tol + 1e-9) return null;
+  const ca = camelot(a.key, a.mode), cb = camelot(b.key, b.mode);
+  const compat = compatOf(cb, ca);
+  const shift = keyShiftTo(b, a);
+  let keyCost, keyText, keyClass;
+  if (compat.rank <= 1) { keyCost = 0; keyText = compat.rank === 0 ? "同じキー・移調不要" : "平行調・移調不要"; keyClass = "good"; }
+  else if (compat.rank === 2) { keyCost = 0.5; keyText = "隣接キー・移調なしでも可"; keyClass = "good"; }
+  else {
+    if (Math.abs(shift) > opt.maxShift) return null;
+    keyCost = Math.abs(shift);
+    keyText = `Bを ${fmtSigned(shift, 0)} 半音`;
+    keyClass = keyCost <= 2 ? "warn" : "far";
+  }
+  const score = Math.abs(pct) + keyCost * 2;
+  return { ra, rb, a, b, ca, cb, pct, tag: best.tag, shift, keyCost, keyText, keyClass, score,
+           check: needsCheck(ra) || needsCheck(rb), verified: ra.check.c === "good" && rb.check.c === "good" || (!!edits[ra.id] && !!edits[rb.id]) };
+}
+function renderPairs() {
+  if (!DATA) return;
+  const opt = { tol: Math.max(0, parseFloat($("pTol").value) || 0), maxShift: parseInt($("pShift").value, 10), hd: $("pHd").checked };
+  const focus = $("pFocus").value, onlyVerified = $("pVerified").checked, sortBy = $("pSort").value;
+  const okRow = r => !onlyVerified || r.check.c === "good" || !!edits[r.id];
+  const list = [];
+  if (focus) {
+    const fr = base.find(r => r.id === focus);
+    for (const r of base) if (r !== fr && okRow(r)) { const p = computePair(fr, r, opt); if (p) list.push(p); }
+  } else {
+    const rows = base.filter(okRow);
+    for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
+      // テンポの速い方を A にすると読みやすい
+      const [x, y] = (eff(rows[i]).bpm || 0) >= (eff(rows[j]).bpm || 0) ? [rows[i], rows[j]] : [rows[j], rows[i]];
+      const p = computePair(x, y, opt); if (p) list.push(p);
+    }
+  }
+  const cmp = { score: (p, q) => p.score - q.score,
+                bpm: (p, q) => Math.abs(p.pct) - Math.abs(q.pct) || p.keyCost - q.keyCost,
+                key: (p, q) => p.keyCost - q.keyCost || Math.abs(p.pct) - Math.abs(q.pct) }[sortBy];
+  list.sort(cmp);
+  const shown = list.slice(0, 300);
+  const usable = base.filter(r => { const v = eff(r); return v.bpm && v.key != null; }).length;
+  $("pSummary").textContent = list.length
+    ? `${list.length} 組の候補が見つかりました` + (list.length > shown.length ? `（上位 ${shown.length} 組を表示）` : "") +
+      (focus ? "" : `　・BPMとキーがそろっている曲 ${usable} / ${base.length} 曲で計算`)
+    : "条件に合う組み合わせがありません。BPM差や移調の範囲を広げてみてください。";
+  const maxScore = opt.tol + opt.maxShift * 2 || 1;
+  $("pairBody").innerHTML = shown.map((p, i) => {
+    const vals = (v, c) => `<span class="vals">${fmtBpm(v.bpm)} BPM · ${keyShort(v.key, v.mode)}（${c.s}）</span>`;
+    const pctTxt = Math.abs(p.pct) < 0.05 ? "そのまま" : `${fmtSigned(p.pct, 1)}%`;
+    const tempo = `<div class="stack"><span class="chip ${Math.abs(p.pct) <= 3 ? "good" : (Math.abs(p.pct) <= 6 ? "warn" : "far")}">${pctTxt}</span>` +
+      `<span class="small num">${p.tag ? `B${p.tag}で ` : ""}${fmtBpm(p.b.bpm)} → ${fmtBpm(p.a.bpm)}</span></div>`;
+    const chk = p.check
+      ? `<span class="chip warn" title="${esc([needsCheck(p.ra) ? "曲A" : "", needsCheck(p.rb) ? "曲B" : ""].filter(Boolean).join("・"))}の値がデータベース間でずれています">要確認</span>`
+      : (p.verified ? `<span class="chip good">一致</span>` : `<span class="chip none" title="照合できるデータが1つだけの曲を含みます">照合なし</span>`);
+    const pctScore = Math.max(4, Math.round(100 - p.score / maxScore * 100));
+    return `<tr>
+      <td class="r num">${i + 1}</td>
+      <td class="song">${songCell(p.ra, vals(p.a, p.ca))}</td>
+      <td class="pair-arrow" aria-hidden="true">×</td>
+      <td class="song">${songCell(p.rb, vals(p.b, p.cb))}</td>
+      <td>${tempo}</td>
+      <td><span class="chip ${p.keyClass}">${p.keyText}</span></td>
+      <td>${chk}</td>
+      <td><span class="score" title="テンポ差と移調量から計算"><i><b style="width:${pctScore}%"></b></i><span class="num small">${pctScore}</span></span></td>
+      <td><button type="button" data-compare="${p.ra.id}">Aを基準に比較</button></td>
+    </tr>`;
+  }).join("");
+}
+
+// ------------------------------------------------------------ reference table
+function computeRef() {
+  const refRow = base.find(r => r.id === refId) || base[0];
+  const ref = refRow ? eff(refRow) : {};
+  const refCam = camelot(ref.key, ref.mode);
+  const tol = Math.max(0, parseFloat($("tol").value) || 0);
+  const hd = $("hd").checked;
+  return base.map((r, i) => {
+    const v = eff(r);
+    const o = { r, v, idx: i + 1, title: (r.title || r.id).toLowerCase(), bpm: v.bpm ?? Infinity,
+      keyIdx: v.key == null ? 99 : v.mode * 12 + v.key, isRef: r.id === refRow?.id };
+    o.checkRank = v.edited ? 6 : r.check.rank; o.needsCheck = needsCheck(r);
+    const cam = camelot(v.key, v.mode);
+    o.cam = cam; o.camelotSort = cam ? cam.n * 2 + (cam.l === "B" ? 1 : 0) : 999;
+    if (v.bpm && ref.bpm) {
+      let best = { val: v.bpm, tag: "" };
+      if (hd) for (const [val, tag] of [[v.bpm * 2, "×2"], [v.bpm / 2, "÷2"]])
+        if (Math.abs(val - ref.bpm) < Math.abs(best.val - ref.bpm)) best = { val, tag };
+      o.bpmTag = best.tag; o.bpmDiff = best.val - ref.bpm; o.bpmPct = o.bpmDiff / ref.bpm * 100;
+      o.bpmDiffAbs = Math.abs(o.bpmDiff); o.bpmPctAbs = Math.abs(o.bpmPct);
+      o.bpmNear = o.bpmPctAbs <= tol + 1e-9;
+      o.pitch = 12 * Math.log2(ref.bpm / best.val);
+    } else { o.bpmDiffAbs = o.bpmPctAbs = Infinity; o.bpmNear = false; }
+    if (cam && refCam) {
+      o.keyShift = keyShiftTo(v, ref); o.relative = v.mode !== ref.mode; o.keyShiftAbs = Math.abs(o.keyShift);
+      o.compat = compatOf(cam, refCam); o.keyGood = o.compat.c === "good"; o.compatRank = o.compat.rank;
+      if (o.pitch != null) { o.after = mod(o.keyShift - o.pitch + 6, 12) - 6; o.afterAbs = Math.abs(o.after); }
+      else o.afterAbs = Infinity;
+    } else { o.keyShiftAbs = o.compatRank = o.afterAbs = Infinity; o.keyGood = false; }
+    return o;
+  });
+}
+function keyOptions(k, m) {
+  let h = `<option value="">–</option>`;
+  for (const mm of [1, 0]) for (let kk = 0; kk < 12; kk++)
+    h += `<option value="${kk},${mm}"${k === kk && m === mm ? " selected" : ""}>${keyName(kk, mm)}（${camelot(kk, mm).s}）</option>`;
+  return h;
+}
+function renderRef() {
+  if (!DATA) return;
+  const rows = computeRef();
+  const refO = rows.find(o => o.isRef);
+  const q = $("q").value.trim().toLowerCase(), show = $("show").value, tol = $("tol").value;
+  if (refO) {
+    $("refPanel").innerHTML = `<div class="label">基準曲</div>
+      <p class="t">${esc(refO.r.title || "（曲名不明）")}</p><div class="a">${esc(refO.r.artist)}</div>
+      <div class="facts"><div><span class="label">BPM</span><b>${refO.v.bpm ? Number(refO.v.bpm).toFixed(1) : "–"}</b></div>
+      <div><span class="label">キー</span><b style="font-family:var(--font-body)">${refO.v.key != null ? keyName(refO.v.key, refO.v.mode) : "–"}</b></div>
+      <div><span class="label">Camelot</span><b>${refO.cam ? refO.cam.s : "–"}</b></div></div>`;
+  }
+  const others = rows.filter(o => !o.isRef);
+  $("sBpm").textContent = `${others.filter(o => o.bpmNear).length} / ${others.length}`;
+  $("sBpmNote").textContent = `±${tol}% 以内`;
+  $("sKey").textContent = `${others.filter(o => o.keyGood).length} / ${others.length}`;
+  $("sBoth").textContent = `${others.filter(o => o.keyGood && o.bpmNear).length} 曲`;
+  const nCheck = rows.filter(o => o.needsCheck).length;
+  $("sCheck").textContent = `${nCheck} 曲`;
+  $("sCheckNote").textContent = SOURCES.length > 1 ? "データベース間でずれ" : "照合先が1つだけです（設定で追加）";
+  $("checkCount").hidden = !nCheck; $("checkCount").textContent = `要確認 ${nCheck}`;
+
+  rows.sort((a, b) => {
+    if (a.isRef !== b.isRef && sortKey !== "idx") return a.isRef ? -1 : 1;
+    const x = a[sortKey], y = b[sortKey];
+    if (x === y) return a.idx - b.idx;
+    if (x === Infinity) return 1; if (y === Infinity) return -1;
+    return (x > y ? 1 : -1) * sortDir;
+  });
+  document.querySelectorAll("#refTable th[data-sort]").forEach(th => {
+    th.querySelector(".arrow")?.remove();
+    if (th.dataset.sort === sortKey) th.insertAdjacentHTML("beforeend", `<span class="arrow">${sortDir > 0 ? "▲" : "▼"}</span>`);
+  });
+  $("tbody").innerHTML = rows.map(o => {
+    const hay = (o.r.title + " " + o.r.artist).toLowerCase();
+    const pass = (!q || hay.includes(q)) && (o.isRef || show === "all" || (show === "bpm" && o.bpmNear) ||
+      (show === "key" && o.keyGood) || (show === "both" && o.bpmNear && o.keyGood) || (show === "check" && o.needsCheck));
+    if (!pass) return "";
+    const v = o.v, id = o.r.id;
+    const srcCell = `<div class="srcs">` + SOURCES.map(s => {
+      const sv = (o.r.src || {})[s], lab = SRC_LABEL[s];
+      if (sv && sv.pending) return `<span class="src empty" title="${lab[1]}で解析中です。しばらくして取り直してください"><span class="n">${lab[0]}</span>解析中</span>`;
+      if (!hasVal(sv)) return `<span class="src empty" title="${lab[1]}に見つかりませんでした"><span class="n">${lab[0]}</span>なし</span>`;
+      const on = (sv.bpm ? Math.abs((v.bpm || 0) - sv.bpm) < 0.051 : !v.bpm) && sv.key === v.key && sv.mode === v.mode;
+      const tip = [lab[1] + "の値を採用", sv.matched ? "一致した曲: " + sv.matched : "",
+        sv.match === "title-only" ? "※曲名のみで照合" : (sv.match === "fuzzy" ? "※曲名が完全一致ではありません" : ""),
+        sv.key_conf != null ? "キー信頼度 " + sv.key_conf : ""].filter(Boolean).join("\n");
+      return `<button type="button" class="src${on ? " on" : ""}" data-adopt="${s}" data-id="${id}" title="${esc(tip)}"><span class="n">${lab[0]}</span>${fmtBpm(sv.bpm)} · ${keyShort(sv.key, sv.mode)}${sv.match && sv.match !== "exact" ? " ?" : ""}</button>`;
+    }).join("") + `</div>`;
+    const bpmCell = o.isRef || o.bpmDiff == null ? "–" :
+      `<span class="${Math.abs(o.bpmDiff) < 0.05 ? "zero" : ""}">${fmtSigned(o.bpmDiff, 1)}</span>${o.bpmTag ? `<span class="tag">${o.bpmTag}</span>` : ""}`;
+    const pctCell = o.isRef || o.bpmPct == null ? "–" :
+      `<span class="chip ${o.bpmNear ? "good" : (o.bpmPctAbs <= 2 * tol ? "warn" : "far")}">${fmtSigned(o.bpmPct, 1)}%</span>`;
+    const keyCell = o.isRef || o.keyShift == null ? "–" :
+      `<span class="${o.keyShift === 0 ? "zero" : ""}">${fmtSigned(o.keyShift, 0)}</span>${o.relative ? `<span class="tag">平行調基準</span>` : ""}`;
+    const compatCell = o.isRef ? `<span class="badge-ref">基準</span>` :
+      (o.compat ? `<span class="chip ${o.compat.c}">${o.compat.t}</span>` : `<span class="chip none">データなし</span>`);
+    return `<tr class="${o.isRef ? "is-ref" : ""}">
+      <td class="r num">${o.idx}</td>
+      <td class="song">${songCell(o.r)}</td>
+      <td class="r"><input class="bpm${edits[id]?.bpm !== undefined ? " edited" : ""}" id="bpm-${id}" data-id="${id}" type="number" step="0.1" min="0" value="${v.bpm ?? ""}" placeholder="–" aria-label="BPM"></td>
+      <td><select class="key${edits[id]?.key !== undefined ? " edited" : ""}" id="key-${id}" data-id="${id}" aria-label="キー">${keyOptions(v.key, v.mode)}</select></td>
+      <td>${checkChip(o.r)}</td>
+      <td>${srcCell}</td>
+      <td class="num">${o.cam ? o.cam.s : "–"}</td>
+      <td class="r num">${bpmCell}</td>
+      <td class="r num">${pctCell}</td>
+      <td class="r num">${keyCell}</td>
+      <td>${compatCell}</td>
+      <td class="r num">${o.isRef || o.after == null ? "–" : fmtSigned(o.after, 1)}</td>
+      <td>${o.isRef ? "" : `<button type="button" data-ref="${id}">基準にする</button>`}</td>
+    </tr>`;
+  }).join("");
+  window.__rows = rows;
+}
+
+// ------------------------------------------------------------ ui events
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 1800);
+}
+function selectTab(which) {
+  const pairs = which === "pairs";
+  $("tabPairs").setAttribute("aria-selected", pairs); $("tabRef").setAttribute("aria-selected", !pairs);
+  $("panelPairs").hidden = !pairs; $("panelRef").hidden = pairs;
+}
+$("tabPairs").addEventListener("click", () => selectTab("pairs"));
+$("tabRef").addEventListener("click", () => selectTab("ref"));
+$("pairBody").addEventListener("click", e => {
+  const b = e.target.closest("button[data-compare]");
+  if (b) { refId = b.dataset.compare; renderRef(); selectTab("ref"); window.scrollTo({ top: $("result").offsetTop - 60, behavior: "smooth" }); }
+});
+["pFocus", "pTol", "pShift", "pHd", "pVerified", "pSort"].forEach(id => $(id).addEventListener("input", renderPairs));
+["q", "tol", "hd", "show"].forEach(id => $(id).addEventListener("input", renderRef));
+document.querySelectorAll("#refTable th[data-sort]").forEach(th => th.addEventListener("click", () => {
+  const k = th.dataset.sort;
+  if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = 1; }
+  renderRef();
+}));
+$("tbody").addEventListener("click", e => {
+  const ad = e.target.closest("button[data-adopt]");
+  if (ad) {
+    const r = base.find(x => x.id === ad.dataset.id), sv = r.src[ad.dataset.adopt], e2 = {};
+    if (sv.bpm && sv.bpm !== r.bpm) e2.bpm = sv.bpm;
+    if (sv.key != null && (sv.key !== r.key || sv.mode !== r.mode)) { e2.key = sv.key; e2.mode = sv.mode; }
+    if (Object.keys(e2).length) edits[r.id] = e2; else delete edits[r.id];
+    saveEdits(); renderAll(); toast(SRC_LABEL[ad.dataset.adopt][1] + " の値を採用しました");
+    return;
+  }
+  const b = e.target.closest("button[data-ref]");
+  if (b) { refId = b.dataset.ref; renderRef(); window.scrollTo({ top: $("result").offsetTop - 60, behavior: "smooth" }); }
+});
+$("tbody").addEventListener("change", e => {
+  const id = e.target.dataset.id; if (!id) return;
+  const orig = base.find(r => r.id === id);
+  edits[id] = edits[id] || {};
+  if (e.target.classList.contains("bpm")) {
+    const val = parseFloat(e.target.value), nv = isNaN(val) || val <= 0 ? null : val;
+    if (nv === orig.bpm) delete edits[id].bpm; else edits[id].bpm = nv;
+  } else {
+    const [k, m] = e.target.value ? e.target.value.split(",").map(Number) : [null, null];
+    if (k === orig.key && m === orig.mode) { delete edits[id].key; delete edits[id].mode; }
+    else { edits[id].key = k; edits[id].mode = m; }
+  }
+  if (!Object.keys(edits[id]).length) delete edits[id];
+  saveEdits(); renderAll();
+});
+$("resetEdits").addEventListener("click", () => {
+  const ids = base.map(r => r.id).filter(id => edits[id]);
+  if (!ids.length) { toast("手入力した値はありません"); return; }
+  ids.forEach(id => delete edits[id]); saveEdits(); renderAll(); toast("このプレイリストの手入力をリセットしました");
+});
+$("csv").addEventListener("click", () => {
+  const head = ["#","曲","アーティスト","Spotify","BPM","キー","Camelot","照合",...SOURCES.map(s => SRC_LABEL[s][1]),"BPM差","BPM差%","換算","キー差(半音)","キーの相性","基準曲"];
+  const lines = [head];
+  for (const o of window.__rows) lines.push([o.idx, o.r.title, o.r.artist, "https://open.spotify.com/track/" + o.r.id,
+    o.v.bpm ?? "", o.v.key != null ? keyName(o.v.key, o.v.mode) : "", o.cam ? o.cam.s : "",
+    o.v.edited ? "手動" : (o.r.check.reasons.length ? o.r.check.reasons.map(x => x[0]).join(" / ") : o.r.check.t),
+    ...SOURCES.map(s => { const sv = (o.r.src || {})[s]; return hasVal(sv) ? `${sv.bpm ?? "–"} ${keyShort(sv.key, sv.mode)}` : ""; }),
+    o.bpmDiff != null ? o.bpmDiff.toFixed(2) : "", o.bpmPct != null ? o.bpmPct.toFixed(2) : "", o.bpmTag || "",
+    o.keyShift ?? "", o.compat ? o.compat.t : "", o.isRef ? "基準" : ""]);
+  const csv = "﻿" + lines.map(l => l.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = (DATA.title || "key_bpm").replace(/[\\/:*?"<>|]/g, "_") + ".csv"; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+
+// ------------------------------------------------------------ server calls
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `エラー (${res.status})`);
+  return data;
+}
+function showError(msg) { $("error").hidden = !msg; $("error").textContent = msg || ""; }
+async function refreshHistory(selectId) {
+  try {
+    const items = await api("/api/history");
+    $("history").innerHTML = items.length
+      ? `<option value="">開く…</option>` + items.map(h => `<option value="${h.id}">${esc(h.title)}（${h.count}曲・${esc(h.generated)}）</option>`).join("")
+      : `<option value="">履歴はまだありません</option>`;
+    if (selectId) $("history").value = selectId;
+    return items;
+  } catch (e) { return []; }
+}
+async function refreshSettings() {
+  try {
+    const s = await api("/api/settings");
+    $("gsSet").hidden = !s.getsongbpm; $("ssSet").hidden = !s.soundstat;
+    const on = ["ReccoBeats"].concat(s.getsongbpm ? ["GetSongBPM"] : [], s.soundstat ? ["SoundStat"] : []);
+    $("srcNote").innerHTML = s.getsongbpm ? `取得元: ${["GetSongBPM（標準）", "ReccoBeats"].concat(s.soundstat ? ["SoundStat"] : []).join(" / ")}` : "";
+    $("keyNotice").hidden = !!s.getsongbpm;
+    $("srcNoteBtn")?.addEventListener("click", openSettings);
+  } catch (e) {}
+}
+$("history").addEventListener("change", async e => {
+  if (!e.target.value) return;
+  try { setData(await api("/api/history/" + e.target.value)); showError(""); } catch (err) { showError(err.message); }
+});
+$("demo").addEventListener("click", async () => {
+  try { setData(await api("/api/history/demo")); } catch (err) { showError(err.message); }
+});
+$("analyze").addEventListener("click", async () => {
+  const text = $("input").value.trim();
+  if (!text) { showError("Spotify のプレイリストURLを貼り付けてください。"); $("input").focus(); return; }
+  showError(""); $("log").innerHTML = ""; $("analyze").disabled = true; $("progress").hidden = false;
+  try {
+    const { job } = await api("/api/analyze", { text, refresh: $("refresh").checked });
+    while (true) {
+      await new Promise(r => setTimeout(r, 700));
+      const j = await api("/api/job/" + job);
+      const pb = $("pbar");
+      pb.classList.toggle("indet", !j.total);
+      pb.querySelector("i").style.width = j.total ? Math.round(j.done / j.total * 100) + "%" : "";
+      $("stage").textContent = j.total ? `${j.stage}　${j.done} / ${j.total} 曲` : (j.stage || "");
+      $("log").innerHTML = (j.log || []).map(l => `<div>${esc(l)}</div>`).join("");
+      if (j.status === "done") { setData(j.result); refreshHistory(j.result.id); selectTab("pairs"); toast("解析が終わりました"); break; }
+      if (j.status === "error") { showError(j.error); break; }
+    }
+  } catch (err) {
+    showError(err.message === "Failed to fetch" ? "ツールが停止しています。起動ファイルをもう一度ダブルクリックしてください。" : err.message);
+  } finally { $("analyze").disabled = false; $("progress").hidden = true; }
+});
+$("input").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("analyze").click(); });
+
+function openSettings() { $("gsKey").value = ""; $("ssKey").value = ""; $("settings").showModal(); }
+$("openSettings").addEventListener("click", openSettings);
+$("keyNoticeBtn").addEventListener("click", openSettings);
+$("cancelSettings").addEventListener("click", () => $("settings").close());
+$("showKeys").addEventListener("change", e => { $("gsKey").type = $("ssKey").type = e.target.checked ? "text" : "password"; });
+$("saveSettings").addEventListener("click", async () => {
+  const body = {};
+  if ($("gsKey").value.trim()) body.getsongbpm_api_key = $("gsKey").value.trim();
+  if ($("ssKey").value.trim()) body.soundstat_api_key = $("ssKey").value.trim();
+  try { await api("/api/settings", body); $("settings").close(); refreshSettings(); toast(Object.keys(body).length ? "保存しました。次の解析から照合に使います" : "変更はありません"); }
+  catch (err) { toast(err.message); }
+});
+$("clearKeys").addEventListener("click", async () => {
+  try { await api("/api/settings", { getsongbpm_api_key: "", soundstat_api_key: "" }); refreshSettings(); toast("APIキーを削除しました"); } catch (err) { toast(err.message); }
+});
+$("quit").addEventListener("click", async () => {
+  try { await api("/api/quit", {}); } catch (e) {}
+  document.body.innerHTML = `<main class="wrap"><div class="card"><h1>終了しました</h1><p class="sub">このタブは閉じて大丈夫です。もう一度使うときは、起動ファイルをダブルクリックしてください。</p></div></main>`;
+});
+
+// 起動時: 設定と履歴を読み込み、前回の解析結果を開く
+(async () => {
+  await refreshSettings();
+  const items = await refreshHistory();
+  if (items.length) {
+    try { setData(await api("/api/history/" + items[0].id)); $("history").value = items[0].id; } catch (e) {}
+  }
+})();
+</script>
+</body>
+</html>

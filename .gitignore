@@ -1,0 +1,4 @@
+保存データ/
+__pycache__/
+*.pyc
+.DS_Store

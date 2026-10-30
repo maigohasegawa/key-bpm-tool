@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>キー/BPM 照合ツール</title>
+<meta name="description" content="Spotify のプレイリストURLから、収録曲の BPM とキーを調べてマッシュアップ候補を探すツール。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  /* layout: 1カラム。見出し → ダウンロード → 3ステップ → 機能 → データ提供 */
+  --bg: #f3f4f1;
+  --surface: #ffffff;
+  --ink: #1d2124;
+  --muted: #6a7178;
+  --line: #dfe2dd;
+  --accent: #3446d6;
+  --accent-soft: #e6e9fb;
+  --good: #1f8a4c; --good-bg: #e2f3e8;
+  --warn: #a8670a; --warn-bg: #fbf0dc;
+  --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15181b; --surface: #1d2125; --ink: #e7e9e6; --muted: #959ca3; --line: #2f343a;
+    --accent: #8d9bff; --accent-soft: #262c52; --good: #5cc98a; --good-bg: #183324; --warn: #e3a94b; --warn-bg: #3a2c14;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.7 var(--font-body); }
+.wrap { max-width: 860px; margin: 0 auto; padding: 48px 20px 64px; display: grid; gap: 40px; }
+a { color: var(--accent); }
+.mark { width: 36px; height: 36px; border-radius: 9px; background: var(--accent); color: #fff; display: grid; place-items: center; font: 500 18px var(--font-num); }
+h1 { font-size: 30px; line-height: 1.3; margin: 14px 0 8px; text-wrap: balance; }
+h2 { font-size: 18px; margin: 0 0 14px; }
+.lead { color: var(--muted); max-width: 60ch; margin: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; align-items: center; }
+.btn { display: inline-block; padding: 10px 18px; border-radius: 8px; font-weight: 500; text-decoration: none; border: 1px solid var(--line); color: var(--ink); background: var(--surface); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.req { font-size: 13px; color: var(--muted); }
+
+/* 例: マッシュアップ候補の1行 */
+.sample { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; grid-template-columns: 1fr auto 1fr auto auto; gap: 10px 16px; align-items: center; }
+.sample .song b { display: block; font-weight: 500; }
+.sample .song span { font: 12.5px var(--font-num); color: var(--muted); }
+.sample .x { color: var(--muted); }
+.chip { display: inline-block; border-radius: 999px; padding: 1px 10px; font-size: 12.5px; white-space: nowrap; }
+.chip.good { background: var(--good-bg); color: var(--good); }
+.chip.warn { background: var(--warn-bg); color: var(--warn); }
+.caption { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; counter-reset: s; padding: 0; margin: 0; list-style: none; }
+.steps li { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; font-size: 14px; color: var(--muted); }
+.steps li::before { counter-increment: s; content: counter(s); display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font: 500 13px var(--font-num); margin-bottom: 8px; }
+.steps b { display: block; color: var(--ink); }
+
+.features { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 28px; margin: 0; padding: 0; list-style: none; }
+.features li { border-top: 1px solid var(--line); padding-top: 10px; font-size: 14px; color: var(--muted); }
+.features b { display: block; color: var(--ink); font-size: 15px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+.tablebox { overflow-x: auto; }
+.credit { margin-top: 12px; font-size: 14px; }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 18px; }
+@media (max-width: 700px) {
+  .steps, .features { grid-template-columns: 1fr; }
+  .sample { grid-template-columns: 1fr; }
+  .sample .x { display: none; }
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <div class="mark" aria-hidden="true">♯</div>
+    <h1>キー/BPM 照合ツール</h1>
+    <p class="lead">Spotify のプレイリストURLを貼るだけで、収録曲の BPM とキーを楽曲データベースから調べ、マッシュアップに使える組み合わせを相性の良い順に並べます。音源は使わず、曲名とアーティスト名から調べます。</p>
+    <div class="actions">
+      <a class="btn primary" href="https://github.com/maigohasegawa/key-bpm-tool/archive/refs/heads/main.zip">ダウンロード（ZIP）</a>
+      <a class="btn" href="https://github.com/maigohasegawa/key-bpm-tool">GitHub で見る</a>
+      <span class="req">Mac / Windows ・ Python 3 が必要</span>
+    </div>
+  </header>
+
+  <section aria-labelledby="ex">
+    <h2 id="ex">こんな結果が出ます</h2>
+    <div class="sample">
+      <div class="song"><b>曲 A</b><span>124.9 BPM · Am（8A）</span></div>
+      <div class="x" aria-hidden="true">×</div>
+      <div class="song"><b>曲 B</b><span>63 BPM · C（8B）</span></div>
+      <span class="chip good">B×2で +0.9%</span>
+      <span class="chip good">平行調・移調不要</span>
+    </div>
+    <p class="caption">表示例。曲Bを倍テンポとして扱えば伸縮は1%未満、キーは平行調なので移調せずに重ねられる、という読み方です。</p>
+  </section>
+
+  <section aria-labelledby="how">
+    <h2 id="how">使い方</h2>
+    <ol class="steps">
+      <li><b>ダウンロードして解凍</b>上のボタンから ZIP を取得します。</li>
+      <li><b>起動ファイルをダブルクリック</b>Mac は「起動（Mac）.command」、Windows は「起動（Windows）.bat」。ブラウザに画面が開きます。</li>
+      <li><b>URLを貼って「解析する」</b>Spotify の「共有 → リンクをコピー」で取れるプレイリストURLを使います。</li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="feat">
+    <h2 id="feat">できること</h2>
+    <ul class="features">
+      <li><b>マッシュアップ候補</b>全曲の総当たりで、テンポの伸縮率と移調量が小さい組み合わせを表示。倍・半分テンポにも対応します。</li>
+      <li><b>曲で絞り込み</b>1曲を選ぶと、その曲に合う相手だけを表示。アカペラに合うオケ探しに。</li>
+      <li><b>複数データベースで照合</b>BPMの倍/半分や平行調の取り違えなど、値がずれている曲に「要確認」の印を付けます。</li>
+      <li><b>基準曲との比較</b>BPM差、キー差（半音）、Camelot、相性を一覧で。CSVでも保存できます。</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="data">
+    <h2 id="data">データの取得元</h2>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>データベース</th><th>役割</th><th>設定</th></tr></thead>
+        <tbody>
+          <tr><td><a href="https://getsongbpm.com">GetSongBPM</a></td><td>BPM・キーの標準の取得元</td><td>無料の APIキーを画面の「設定」から登録</td></tr>
+          <tr><td><a href="https://reccobeats.com">ReccoBeats</a></td><td>GetSongBPM に見つからない曲を補う／照合</td><td>不要</td></tr>
+          <tr><td><a href="https://soundstat.info">SoundStat</a></td><td>3つ目の照合先（任意）</td><td>APIキーが必要</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="credit">BPM・キーのデータは <a href="https://getsongbpm.com">GetSongBPM.com</a> と <a href="https://reccobeats.com">ReccoBeats</a> の提供によるものです。</p>
+  </section>
+
+  <footer>作者：長谷川迷子 ・ <a href="https://github.com/maigohasegawa/key-bpm-tool">ソースコード</a></footer>
+</main>
+</body>
+</html>
